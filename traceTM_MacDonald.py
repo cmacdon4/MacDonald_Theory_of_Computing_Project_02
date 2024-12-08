@@ -33,7 +33,13 @@ class CTM:
 def usage(status):
     print("Usage Error:")
     print("\t ./traceTM_MacDonald.py $File $String $Termination_Flag\n")
-    print("\tMake sure the string has the appropriate chars given the files sigma\n")
+
+    if (status == 1):
+        print("Give a valid file")
+
+    if (status == 2):
+         print("Invalid String. Make sure the string has the appropriate chars given the file's sigma (line 3)\n")
+
     sys.exit(status)
 
 def NTM_dump(TM):
@@ -99,6 +105,7 @@ def TM_walk(TM):
         #[previous state, current state, tape, left_of_head, head_index, head_char]
     frontier = []
     frontier.append([prev_state, curr_state, tape, left_of_head, head_index, head_char])
+    TM.tree.append([prev_state, curr_state, tape, left_of_head, head_index, head_char])
 
     while TM.nsims < TM.flag and frontier:
         pre_transition = frontier.pop(0)
@@ -115,51 +122,49 @@ def TM_walk(TM):
 
         #Transition is formatted as follows:
             # [curr_state, head_char, new_state, new_head_char, Head_Movement]
-        # print(TM.transitions[0][0], TM.transitions[0][1], TM.nsims)
-        # print(curr_state, head_char)
 
         transitions = [transition for transition in TM.transitions if (transition[0] == curr_state and transition[1] == head_char)]
-    
+
+        if not transitions:
+            post_transitions.append([curr_state, TM.reject, tape, left_of_head, head_index, head_char])
 
         for transition in transitions:
+            #updating config based on transition
             #getting states
             prev_state = curr_state
             next_state = transition[2]
 
-            #updating tape
-            new_tape = tape[:head_index] + transition[3] + tape[head_index + 1:]
+            if head_index + 2 <= len(tape):
+                #update tape
+                new_tape = tape[:head_index] + transition[3] + tape[head_index + 1:] 
 
-            #updating index of possible
-            new_head_index = head_index
-            if head_index + 2 < len(tape) and head_index - 1 > 0:
+                #update head index
                 if transition[4] == "R":
-                    new_head_index += 1
+                    new_head_index = head_index + 1
                 elif transition[4] == "L":
-                    new_head_index -= 1
-                else:
-                    print("something is wrong with the transition!")
-                    exit(1)
+                    new_head_index = head_index - 1
 
-                #updating facing char
-                new_head_char = tape[new_head_index]
+                #update left of head
+                new_left_of_head = new_tape[:new_head_index]
+
+                #update head_char
+                new_head_char = new_tape[new_head_index]
+
+                post_transition = [prev_state, next_state, new_tape, new_left_of_head, new_head_index, new_head_char]
             else:
-                #example of this:
-                    #tape: aaa_q1
-                    #essentially qrej or qacc
-                #condition_dump(TM, pre_transition, transition, post_transition)
-                new_head_char = head_char
+                #update tape
+                new_tape = tape[:head_index] + transition[3] + tape[head_index + 1:]
+                left_of_head = new_tape
+                head_char = "N/A"
+                #index, leftofhead, and stays same
 
-            #updating left of string
-            new_left = tape[:new_head_index]
+                post_transition = [prev_state, next_state, new_tape, left_of_head, head_index, head_char]
 
-            #updating frontier
-            post_transition = [prev_state, next_state, new_tape, new_left, new_head_index, new_head_char]
+            #update frontier
             frontier.append(post_transition)
             post_transitions.append(post_transition)
 
-            #condition_dump(TM, pre_transition, transition, post_transition)
-
-        if len(post_transitions) > 1:
+        if len(post_transitions) > 0:
             TM.tree.append(post_transitions)
             TM.nsims += 1
     return
@@ -203,8 +208,8 @@ def main(args=sys.argv[1:]):
     #getting string and making sure its valid
     string = args[1]
     for char in string:
-        if char not in TM.sigma:
-            usage(1)
+        if char not in TM.sigma and not char == '_':
+            usage(2)
 
     #adding an underscore if needed
     if "_" not in string:
