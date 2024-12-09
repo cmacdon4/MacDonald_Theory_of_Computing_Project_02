@@ -153,7 +153,7 @@ def output(TM, tree, path):
             sum_configs += 1
 
     nondeterminism =  sum_configs / len(tree)
-
+ 
     #output
     print(f"{"Name":<25}: {TM.name}")
     print(f"{"Nondeterministic?":<25}: {TM.nondeterministic}")
