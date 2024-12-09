@@ -23,11 +23,7 @@ class CTM:
 
         #Simulation Data
         self.nsims = 0
-        self.nlevels = 0
-        self.avg_determinism = 0
         self.success = False
-
-
 
 def usage(status):
     print("Usage Error:")
@@ -42,6 +38,7 @@ def usage(status):
     sys.exit(status)
 
 def NTM_dump(TM):
+    #helper function
     print(f"Name: {TM.name}")
     print(f"Nondeterministic?: {TM.nondeterministic}")
     print(f"States: {TM.states}")
@@ -55,28 +52,6 @@ def NTM_dump(TM):
 
     print(f"String: {TM.string}")
 
-def condition_dump(TM, pre_transition, transition, post_transition):
-    print("Level: TM.Level")
-    print(f"Sim: {TM.nsims}")
-    print(f'{"Curr_State":<10} {pre_transition[0]}')
-    print(f'{"prev_state":<10} {pre_transition[1]}')
-    print(f'{"left_of_head":<10} {pre_transition[2]}')
-    print(f'{"tape":<10} {pre_transition[3]}')
-    print(f'{"head_index":<10} {pre_transition[4]}')
-    print(f'{"head_char":<10} {pre_transition[5]}')
-
-    print(transition)
-    print(f"{post_transition}\n")
-
-
-def print_configs(TM):
-    for level in TM.tree:
-        #[previous state, current state, tape, left_of_head, head_index, head_char]
-        state = level[0][1]
-        left = level[0][3]
-        right = level[0][2][level[0][4]:]
-        print(f"{left}{state}{right}")
-
 
 def parse_csv(file):
     with open(file, 'r') as file:
@@ -85,6 +60,7 @@ def parse_csv(file):
             nondeterministic = True
         else:
             nondeterministic = False
+        #getting things that arent interable
         states = file.readline().strip().split(",")
         sigma = file.readline().strip().split(",")
         gamma = file.readline().strip().split(",")
@@ -94,6 +70,7 @@ def parse_csv(file):
 
         transitions = []
 
+        #iterable transitions
         for line in file:
             transitions.append(line.strip().split(","))
 
@@ -104,36 +81,41 @@ def parse_csv(file):
 def TM_walk(TM):
     curr = TM.start
     #each quad has the following format:
-    #left_of_head, curr_state, next_char, prev_state
+    #left_of_head, curr_state, right_of_head, prev_state
     frontier = [[('', curr, TM.string, None)]]
     tree = []
 
+    #BFS tree transversal for valid transitions
     while frontier and TM.nsims < TM.flag:
         level = frontier.pop(0)
         tree.append(level)
 
         next_level = []
         for config in level:
-            input_seen, curr_state, input_next, _ = config
+            input_seen, curr_state, input_next, _ = config #dont care about previous state
             head_char = input_next[0]
 
-            for transition in [transition for transition in TM.transitions if transition[0] == curr_state and transition[1] == head_char]:
+            #getting mathcing transitions
+            for transition in [transition for transition in TM.transitions if transition[0] == curr_state]:
                 _, next_char, next_state, write_char, direction = transition
+                #only valid if mathcing next chars
                 if next_char == head_char:
+                    #completed a simulation
                     TM.nsims += 1
                     if next_state == TM.accept:
+                        #success
                         tree.append([(input_seen + write_char, next_state, "", curr_state)])
                         TM.success = True
                         return tree
                     if direction == "R":
+                        #what the config looks like post transition for R
                         next_level.append((input_seen + write_char, next_state, input_next[1:], curr_state))
                     elif direction == "L":
+                        #what the config looks like post transition for L
                         next_level.append((input_seen[:-1], next_state, input_seen[-1] + write_char + input_next[1:], curr_state))
               
-
+        #make sure there is not empty levels
         if next_level: frontier.append(next_level)
-            
-
     return tree
 
 def backtrace(TM, tree):
@@ -141,6 +123,7 @@ def backtrace(TM, tree):
     #config is formatted in following format
     #input_seen, curr_state, input_next, _ = config
 
+    #if it is deterministic then path is straight from the top
     if TM.nondeterministic == False:
         for level in tree:
             for config in level:
@@ -148,14 +131,16 @@ def backtrace(TM, tree):
                 path.append(config)
         return path
     else:
+        #backtracing by mathcing the path
         path.append(tree[-1][0]) #the success node
         for index, level in enumerate(reversed(tree)):
             if index == 0:
                 continue
             for config in level:
-                input_seen, curr_state, input_next, prev_state = config
-                if curr_state == path[-1][3]: #path[-1][3] is the child's previous
+                _, curr_state, _, _ = config
+                if curr_state == path[-1][3]: #path[-1][3] is the child's prev_state
                     path.append(config)
+                    break
 
         return reversed(path)
     
@@ -173,18 +158,21 @@ def output(TM, tree, path):
     print(f"{"Name":<25}: {TM.name}")
     print(f"{"Nondeterministic?":<25}: {TM.nondeterministic}")
     print(f"{"String":<25}: {TM.string}")
-    print(f"{"Number Simulations":<25}: {TM.nsims}")
+    print(f"{"Transitions Simulated":<25}: {TM.nsims}")
     print(f"{"Degree of Nondeterminism":<25}: {nondeterminism:.3}")
     if TM.success == True:
         print(f"{"Path to accept":<25}: {len(tree) - 1} steps\n")
         print("Path:")
         for config in path:
+            #unroll and print config
             input_seen, curr_state, input_next, _ = config
             print(f"{input_seen}{curr_state}{input_next}")
 
+    #if ran out of simulations
     elif TM.nsims == TM.flag:
         print(f"{"Execution stopped after":<25}: {TM.nsims} simulation")
 
+    #if just failed
     else:
         print(f"{"Path to reject":<25}: {len(tree) - 1} steps\n")
 
@@ -192,6 +180,7 @@ def main(args=sys.argv[1:]):
     if not args or len(args) < 3:
         usage(1)
 
+    #getting file
     file = args[0]
     if not os.path.isfile(file):
         print("File does not exist")
@@ -213,10 +202,9 @@ def main(args=sys.argv[1:]):
 
     TM.flag = int(args[2])
 
-    #NTM_dump(TM)
-
     #Walk Through the tree
     tree = TM_walk(TM)
+    #backtrace to get proper path
     path = backtrace(TM, tree)
 
     #print results
