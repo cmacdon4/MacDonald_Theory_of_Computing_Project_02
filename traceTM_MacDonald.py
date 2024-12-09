@@ -24,7 +24,6 @@ class CTM:
         #Simulation Data
         self.nsims = 0
         self.nlevels = 0
-        self.tree = []
         self.avg_determinism = 0
         self.success = False
 
@@ -70,6 +69,15 @@ def condition_dump(TM, pre_transition, transition, post_transition):
     print(f"{post_transition}\n")
 
 
+def print_configs(TM):
+    for level in TM.tree:
+        #[previous state, current state, tape, left_of_head, head_index, head_char]
+        state = level[0][1]
+        left = level[0][3]
+        right = level[0][2][level[0][4]:]
+        print(f"{left}{state}{right}")
+
+
 def parse_csv(file):
     with open(file, 'r') as file:
         name = file.readline().strip()
@@ -94,104 +102,91 @@ def parse_csv(file):
     return TM
 
 def TM_walk(TM):
-    curr_state = TM.start
-    prev_state = "N/A"
-    left_of_head = ""
-    tape = TM.string
-    head_index = 0
-    head_char = tape[head_index]
+    curr = TM.start
+    #each quad has the following format:
+    #left_of_head, curr_state, next_char, prev_state
+    frontier = [[('', curr, TM.string, None)]]
+    tree = []
+
+    while frontier and TM.nsims < TM.flag:
+        level = frontier.pop(0)
+        tree.append(level)
+
+        next_level = []
+        for config in level:
+            input_seen, curr_state, input_next, _ = config
+            head_char = input_next[0]
+
+            for transition in [transition for transition in TM.transitions if transition[0] == curr_state and transition[1] == head_char]:
+                _, next_char, next_state, write_char, direction = transition
+                if next_char == head_char:
+                    TM.nsims += 1
+                    if next_state == TM.accept:
+                        tree.append([(input_seen + write_char, next_state, "", curr_state)])
+                        TM.success = True
+                        return tree
+                    if direction == "R":
+                        next_level.append((input_seen + write_char, next_state, input_next[1:], curr_state))
+                    elif direction == "L":
+                        next_level.append((input_seen[:-1], next_state, input_seen[-1] + write_char + input_next[1:], curr_state))
+              
+
+        if next_level: frontier.append(next_level)
+            
+
+    return tree
+
+def backtrace(TM, tree):
+    path = []
+    #config is formatted in following format
+    #input_seen, curr_state, input_next, _ = config
+
+    if TM.nondeterministic == False:
+        for level in tree:
+            for config in level:
+                input_seen, curr_state, input_next, _ = config
+                path.append(config)
+        return path
+    else:
+        path.append(tree[-1][0]) #the success node
+        for index, level in enumerate(reversed(tree)):
+            if index == 0:
+                continue
+            for config in level:
+                input_seen, curr_state, input_next, prev_state = config
+                if curr_state == path[-1][3]: #path[-1][3] is the child's previous
+                    path.append(config)
+
+        return reversed(path)
     
-    #each transition can be shown in a list with the following format
-        #[previous state, current state, tape, left_of_head, head_index, head_char]
-    frontier = []
-    frontier.append([prev_state, curr_state, tape, left_of_head, head_index, head_char])
-    TM.tree.append([prev_state, curr_state, tape, left_of_head, head_index, head_char])
 
-    while TM.nsims < TM.flag and frontier:
-        pre_transition = frontier.pop(0)
-        prev_state, curr_state, tape, left_of_head, head_index, head_char = pre_transition
-
-        post_transitions = []
-
-        if curr_state == TM.reject:
-            continue
-        
-        if curr_state == TM.accept:
-            TM.success = True
-            break
-
-        #Transition is formatted as follows:
-            # [curr_state, head_char, new_state, new_head_char, Head_Movement]
-
-        transitions = [transition for transition in TM.transitions if (transition[0] == curr_state and transition[1] == head_char)]
-
-        if not transitions:
-            post_transitions.append([curr_state, TM.reject, tape, left_of_head, head_index, head_char])
-
-        for transition in transitions:
-            #updating config based on transition
-            #getting states
-            prev_state = curr_state
-            next_state = transition[2]
-
-            if head_index + 2 <= len(tape):
-                #update tape
-                new_tape = tape[:head_index] + transition[3] + tape[head_index + 1:] 
-
-                #update head index
-                if transition[4] == "R":
-                    new_head_index = head_index + 1
-                elif transition[4] == "L":
-                    new_head_index = head_index - 1
-
-                #update left of head
-                new_left_of_head = new_tape[:new_head_index]
-
-                #update head_char
-                new_head_char = new_tape[new_head_index]
-
-                post_transition = [prev_state, next_state, new_tape, new_left_of_head, new_head_index, new_head_char]
-            else:
-                #update tape
-                new_tape = tape[:head_index] + transition[3] + tape[head_index + 1:]
-                left_of_head = new_tape
-                head_char = "N/A"
-                #index, leftofhead, and stays same
-
-                post_transition = [prev_state, next_state, new_tape, left_of_head, head_index, head_char]
-
-            #update frontier
-            frontier.append(post_transition)
-            post_transitions.append(post_transition)
-
-        if len(post_transitions) > 0:
-            TM.tree.append(post_transitions)
-            TM.nsims += 1
-    return
-
-def output(TM):
+def output(TM, tree, path):
     #calculate the determinism
-    sum = 0
-    levels = 0
-    ntransitions = 0
+    sum_configs = 0
+    for level in tree:
+        for config in level:
+            sum_configs += 1
 
-    for level in TM.tree:
-        levels += 1
-        print(level)
-        for option in level:
-            sum += 1
-    avg_determinism = sum / levels
+    nondeterminism =  sum_configs / len(tree)
 
-    # #printing results
-    # if TM.success == True:
-    #     #backtrace
-        
+    #output
+    print(f"{"Name":<25}: {TM.name}")
+    print(f"{"Nondeterministic?":<25}: {TM.nondeterministic}")
+    print(f"{"String":<25}: {TM.string}")
+    print(f"{"Number Simulations":<25}: {TM.nsims}")
+    print(f"{"Degree of Nondeterminism":<25}: {nondeterminism:.3}")
+    if TM.success == True:
+        print(f"{"Path to accept":<25}: {len(tree) - 1} steps\n")
+        print("Path:")
+        for config in path:
+            input_seen, curr_state, input_next, _ = config
+            print(f"{input_seen}{curr_state}{input_next}")
 
-    #     #print results
-    #     print(f'String accepted in {ntransitions}')
-    # else:
-    
+    elif TM.nsims == TM.flag:
+        print(f"{"Execution stopped after":<25}: {TM.nsims} simulation")
 
+    else:
+        print(f"{"Path to reject":<25}: {len(tree) - 1} steps\n")
 
 def main(args=sys.argv[1:]):
     if not args or len(args) < 3:
@@ -221,10 +216,11 @@ def main(args=sys.argv[1:]):
     #NTM_dump(TM)
 
     #Walk Through the tree
-    TM_walk(TM)
+    tree = TM_walk(TM)
+    path = backtrace(TM, tree)
 
     #print results
-    output(TM)
+    output(TM, tree, path)
 
 
 if __name__ == "__main__":
